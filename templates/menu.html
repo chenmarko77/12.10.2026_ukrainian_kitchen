@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Menu | Food Shop{% endblock %}
+
+{% block styles %}
+<style>
+	.menu-intro {
+		max-width: 680px;
+		margin: 0 auto 2rem;
+		text-align: center;
+	}
+	.menu-eyebrow {
+		color: var(--accent);
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+	.menu-card {
+		height: 100%;
+		overflow: hidden;
+		border: 1px solid var(--border);
+		border-radius: 1rem;
+		background: var(--surface);
+		box-shadow: 0 0.25rem 1rem rgb(36 43 38 / 5%);
+		transition: transform 0.15s ease, box-shadow 0.15s ease;
+	}
+	.menu-card-link {
+		display: block;
+		height: 100%;
+		border-radius: 1rem;
+		color: inherit;
+		text-decoration: none;
+	}
+	.menu-card-link:hover .menu-card {
+		transform: translateY(-3px);
+		box-shadow: 0 0.5rem 1.25rem rgb(36 43 38 / 12%);
+	}
+	.menu-card-link:focus-visible {
+		outline: 3px solid var(--accent);
+		outline-offset: 4px;
+	}
+	.menu-card img {
+		width: 100%;
+		height: 220px;
+		object-fit: cover;
+	}
+	.menu-card .card-body {
+		display: flex;
+		flex-direction: column;
+		padding: 1.25rem;
+	}
+	.menu-category {
+		color: var(--accent);
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+	.menu-price {
+		color: var(--accent);
+		font-size: 1.1rem;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+	@media (max-width: 575.98px) {
+		.menu-card img { height: 200px; }
+	}
+</style>
+{% endblock %}
+
+{% block content %}
+<section aria-labelledby="menu-heading">
+	<div class="menu-intro">
+		<p class="menu-eyebrow mb-2">Made with tradition</p>
+		<h1 id="menu-heading">Our Ukrainian Menu</h1>
+		<p class="text-secondary mb-0">Enjoy comforting classics and homemade favorites, prepared the way they should be.</p>
+	</div>
+
+	<div class="row g-4">
+		{% for product in products %}
+		<div class="col-12 col-sm-6 col-lg-4">
+			<a class="menu-card-link" href="{{ url_for('position', name=product.name) }}">
+			<article class="card menu-card">
+				{% if product.image %}
+				<img src="{{ url_for('static', filename=product.image) }}" class="card-img-top" alt="{{ product.name }}">
+				{% endif %}
+				<div class="card-body">
+					<span class="menu-category">{{ product.category }}</span>
+					<div class="d-flex justify-content-between align-items-start gap-3 mt-2">
+						<h2 class="h5 mb-0">{{ product.name }}</h2>
+						<span class="menu-price">₴{{ "%.2f"|format(product.price) }}</span>
+					</div>
+					<p class="text-secondary mt-3 mb-0">{{ product.description }}</p>
+				</div>
+			</article>
+			</a>
+		</div>
+		{% else %}
+		<div class="col-12">
+			<p class="text-center text-secondary">There are no menu items yet.</p>
+		</div>
+		{% endfor %}
+	</div>
+</section>
+{% endblock %}
