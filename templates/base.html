@@ -67,6 +67,8 @@
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'menu' %} active{% endif %}" href="{{ url_for('menu') }}"{% if request.endpoint == 'menu' %} aria-current="page"{% endif %}>Menu</a></li>
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'orders' %} active{% endif %}" href="{{ url_for('orders') }}"{% if request.endpoint == 'orders' %} aria-current="page"{% endif %}>Cart</a></li>
 						{% if g.user %}
+						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'reservations' %} active{% endif %}" href="{{ url_for('reservations') }}"{% if request.endpoint == 'reservations' %} aria-current="page"{% endif %}>Book a Table</a></li>
+						<li class="nav-item"><a class="nav-link{% if request.endpoint in ('my_orders', 'my_order') %} active{% endif %}" href="{{ url_for('my_orders') }}"{% if request.endpoint in ('my_orders', 'my_order') %} aria-current="page"{% endif %}>My Orders</a></li>
 						<li class="nav-item"><span class="navbar-text d-block">Hello, {{ g.user.username }}</span></li>
 						<li class="nav-item">
 							<form action="{{ url_for('logout') }}" method="post">

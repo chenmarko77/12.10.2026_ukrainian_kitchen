@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Table Reservations | Food Shop{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Book a Table</h1>
+<section class="card mb-4">
+	<div class="card-body">
+		<h2 class="h5">Make a reservation</h2>
+		<form action="{{ url_for('reservations') }}" method="post">
+			<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+			<div class="row g-3 align-items-end">
+				<div class="col-12 col-sm-6">
+					<label class="form-label" for="reservation_date">Date</label>
+					<input class="form-control" type="date" id="reservation_date" name="reservation_date" min="{{ minimum_date }}" required>
+				</div>
+				<div class="col-12 col-sm-4">
+					<label class="form-label" for="number_of_people">Number of guests</label>
+					<input class="form-control" type="number" id="number_of_people" name="number_of_people" min="1" max="20" required>
+				</div>
+				<div class="col-12 col-sm-2">
+					<button class="btn btn-success w-100" type="submit">Book</button>
+				</div>
+			</div>
+			<p class="form-text mb-0 mt-2">Reservations are available for 1 to 20 guests.</p>
+		</form>
+	</div>
+</section>
+
+<h2 class="h4 mb-3">Your Reservations</h2>
+{% if reservations %}
+<div class="table-responsive">
+	<table class="table align-middle">
+		<thead>
+			<tr>
+				<th scope="col">Date</th>
+				<th scope="col">Guests</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for reservation in reservations %}
+			<tr>
+				<td>{{ reservation.reservation_date.strftime('%d.%m.%Y') }}</td>
+				<td>{{ reservation.number_of_people }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
+{% else %}
+<p class="text-secondary">You do not have any reservations yet.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}My Orders | Food Shop{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">My Orders</h1>
+{% if order_summaries %}
+<div class="d-grid gap-3">
+	{% for summary in order_summaries %}
+	<section class="card">
+		<div class="card-body">
+			<div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-3">
+				<h2 class="h5 mb-0">
+					Order #{{ summary.order.id }} · Placed {{ summary.order.created_at.strftime('%d.%m.%Y %H:%M') }}
+				</h2>
+				<strong>Total: ₴{{ "%.2f"|format(summary.total) }}</strong>
+			</div>
+			<ul class="mb-3">
+				{% for item in summary.order.items %}
+				<li>{{ item.product.name }} × {{ item.quantity }}</li>
+				{% endfor %}
+			</ul>
+			<a class="btn btn-outline-success btn-sm" href="{{ url_for('my_order', order_id=summary.order.id) }}">View details</a>
+		</div>
+	</section>
+	{% endfor %}
+</div>
+{% else %}
+<p class="text-secondary">You have not placed any orders yet. <a href="{{ url_for('menu') }}">Browse the menu</a>.</p>
+{% endif %}
+{% endblock %}

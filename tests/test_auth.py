@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -8,8 +9,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from werkzeug.security import check_password_hash
 
-from database import Base, Orders, Product, Users
-from main import app, initialize_menu
+from database import Base, CustomerOrder, Orders, Product, Reservation, Users
+from main import app, initialize_menu, initialize_order_schema
 
 
 class AuthenticationTests(unittest.TestCase):
@@ -141,6 +142,12 @@ class AuthenticationTests(unittest.TestCase):
             self.assertEqual(len(orders), 1)
             self.assertEqual(orders[0].quantity, 5)
 
+        with self.assertLogs('main', level='INFO') as logs:
+            self.client.get('/orders')
+        self.assertIn('Ukrainian Borsch', logs.output[0])
+        self.assertIn("'quantity': 5", logs.output[0])
+        self.assertIn('total=900.00', logs.output[0])
+
     def test_add_to_cart_rejects_invalid_quantities(self):
         initialize_menu()
         self.register()
@@ -159,6 +166,180 @@ class AuthenticationTests(unittest.TestCase):
                 self.assertIn(b'Choose a quantity between 1 and 99.', response.data)
         with self.sessions() as db:
             self.assertEqual(db.scalars(select(Orders)).all(), [])
+
+    def test_remove_from_cart_decrements_one_and_removes_last_item(self):
+        initialize_menu()
+        self.register()
+        self.login()
+        self.client.get('/position/Ukrainian%20Borsch')
+        with self.client.session_transaction() as session:
+            csrf = session['csrf_token']
+        self.client.post(
+            '/position/Ukrainian%20Borsch',
+            data={'csrf_token': csrf, 'quantity': '5'},
+        )
+
+        with self.sessions() as db:
+            order = db.scalar(select(Orders))
+            assert order is not None
+            order_id = order.id
+
+        response = self.client.get('/orders')
+        self.assertIn(b'Remove one', response.data)
+        response = self.client.post(
+            f'/cart/remove/{order_id}',
+            data={'csrf_token': csrf},
+            follow_redirects=True,
+        )
+        self.assertIn(b'Removed one Ukrainian Borsch', response.data)
+        self.assertIn(b'4</td>', response.data)
+
+        for expected_quantity in (3, 2, 1):
+            response = self.client.post(
+                f'/cart/remove/{order_id}',
+                data={'csrf_token': csrf},
+                follow_redirects=True,
+            )
+            self.assertIn(f'{expected_quantity}</td>'.encode(), response.data)
+        response = self.client.post(
+            f'/cart/remove/{order_id}',
+            data={'csrf_token': csrf},
+            follow_redirects=True,
+        )
+        self.assertIn(b'Removed Ukrainian Borsch', response.data)
+        with self.sessions() as db:
+            self.assertEqual(db.scalars(select(Orders)).all(), [])
+        self.assertIn(b'Your cart is empty.', self.client.get('/orders').data)
+
+    def test_create_order_persists_cart_items_and_clears_cart(self):
+        initialize_menu()
+        initialize_order_schema()
+        self.register()
+        self.login()
+        self.client.get('/position/Pelmeni')
+        with self.client.session_transaction() as session:
+            csrf = session['csrf_token']
+        self.client.post(
+            '/position/Pelmeni',
+            data={'csrf_token': csrf, 'quantity': '2'},
+        )
+
+        preview = self.client.get('/create_order')
+        self.assertEqual(preview.status_code, 200)
+        self.assertIn(b'Review Your Order', preview.data)
+        self.assertIn(b'Pelmeni', preview.data)
+        self.assertIn(b'\xe2\x82\xb4480.00', preview.data)
+
+        response = self.client.post(
+            '/create_order',
+            data={'csrf_token': csrf},
+            follow_redirects=True,
+        )
+        self.assertIn(b'Your order has been placed.', response.data)
+        self.assertIn(b'Order details', response.data)
+        self.assertIn(b'Pelmeni', response.data)
+        self.assertIn(b'2</td>', response.data)
+        self.assertIn(b'\xe2\x82\xb4480.00', response.data)
+        order_list = self.client.get('/my_orders')
+        self.assertEqual(order_list.status_code, 200)
+        self.assertIn(b'Order #1', order_list.data)
+        self.assertIn(b'Pelmeni', order_list.data)
+        self.assertIn('Pelmeni × 2'.encode(), order_list.data)
+        self.assertIn(b'View details', order_list.data)
+        with self.sessions() as db:
+            customer_order = db.scalar(select(CustomerOrder))
+            self.assertIsNotNone(customer_order)
+            assert customer_order is not None
+            self.assertEqual(customer_order.user_id, 1)
+            self.assertIsNotNone(customer_order.created_at)
+            items = db.scalars(
+                select(Orders).where(Orders.customer_order_id == customer_order.id)
+            ).all()
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].quantity, 2)
+
+        self.client.post(
+            '/position/Pelmeni',
+            data={'csrf_token': csrf, 'quantity': '1'},
+        )
+        with self.sessions() as db:
+            self.assertEqual(len(db.scalars(select(CustomerOrder)).all()), 1)
+            cart = db.scalars(
+                select(Orders).where(Orders.customer_order_id.is_(None))
+            ).all()
+            self.assertEqual(len(cart), 1)
+            self.assertEqual(cart[0].quantity, 1)
+
+    def test_order_detail_requires_login_and_hides_other_or_missing_orders(self):
+        self.assertTrue(self.client.get('/my_order/1').location.endswith('/login'))
+        self.assertTrue(self.client.get('/my_orders').location.endswith('/login'))
+        self.register()
+        self.login()
+        self.assertEqual(self.client.get('/my_order/999').status_code, 404)
+
+    def test_create_order_requires_login_and_does_not_create_empty_order(self):
+        self.assertTrue(self.client.get('/create_order').location.endswith('/login'))
+        self.register()
+        self.login()
+        self.client.get('/orders')
+        with self.client.session_transaction() as session:
+            csrf = session['csrf_token']
+        response = self.client.post(
+            '/create_order',
+            data={'csrf_token': csrf},
+            follow_redirects=True,
+        )
+        self.assertIn(b'Your cart is empty.', response.data)
+        with self.sessions() as db:
+            self.assertEqual(db.scalars(select(CustomerOrder)).all(), [])
+
+    def test_table_reservation_requires_login_and_persists_valid_booking(self):
+        self.assertTrue(self.client.get('/reservations').location.endswith('/login'))
+        self.register()
+        self.login()
+        page = self.client.get('/reservations')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'name="reservation_date"', page.data)
+        self.assertIn(b'name="number_of_people"', page.data)
+        with self.client.session_transaction() as session:
+            csrf = session['csrf_token']
+
+        reservation_date = date.today() + timedelta(days=1)
+        response = self.client.post(
+            '/reservations',
+            data={
+                'csrf_token': csrf,
+                'reservation_date': reservation_date.isoformat(),
+                'number_of_people': '4',
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b'Your table reservation has been saved.', response.data)
+        self.assertIn(reservation_date.strftime('%d.%m.%Y').encode(), response.data)
+        self.assertIn(b'>4</td>', response.data)
+        with self.sessions() as db:
+            reservation = db.scalar(select(Reservation))
+            self.assertIsNotNone(reservation)
+            assert reservation is not None
+            self.assertEqual(reservation.user_id, 1)
+            self.assertEqual(reservation.reservation_date, reservation_date)
+            self.assertEqual(reservation.number_of_people, 4)
+
+        invalid_bookings = (
+            {'reservation_date': (date.today() - timedelta(days=1)).isoformat(), 'number_of_people': '2'},
+            {'reservation_date': reservation_date.isoformat(), 'number_of_people': '0'},
+            {'reservation_date': 'not-a-date', 'number_of_people': '2'},
+        )
+        for booking in invalid_bookings:
+            with self.subTest(booking=booking):
+                response = self.client.post(
+                    '/reservations',
+                    data={'csrf_token': csrf, **booking},
+                    follow_redirects=True,
+                )
+                self.assertIn(b'alert-danger', response.data)
+        with self.sessions() as db:
+            self.assertEqual(len(db.scalars(select(Reservation)).all()), 1)
 
     def test_registration_persists_only_a_password_hash(self):
         response = self.register(username='  petro  ')

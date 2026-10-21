@@ -1,5 +1,6 @@
 import os
 import secrets
+from datetime import date
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 from sqlalchemy import inspect, select
@@ -7,7 +8,16 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import Base, Orders, Product, SessionLocal, Users, engine
+from database import (
+    Base,
+    CustomerOrder,
+    Orders,
+    Product,
+    Reservation,
+    SessionLocal,
+    Users,
+    engine,
+)
 
 app = Flask(__name__, static_folder='img')
 app.config.update(
@@ -23,6 +33,19 @@ if not os.environ.get('SECRET_KEY'):
     )
 
 Base.metadata.create_all(engine)
+
+
+def initialize_order_schema():
+    order_columns = {
+        column['name'] for column in inspect(engine).get_columns('orders')
+    }
+    if 'customer_order_id' not in order_columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                'ALTER TABLE orders ADD COLUMN customer_order_id '
+                'INTEGER REFERENCES customer_orders(id)'
+            )
+
 
 MENU_ITEMS = (
     {
@@ -86,6 +109,7 @@ def initialize_menu():
 
 
 initialize_menu()
+initialize_order_schema()
 
 
 def csrf_token():
@@ -147,6 +171,7 @@ def position(name):
                 select(Orders).where(
                     Orders.user_id == g.user.id,
                     Orders.product_id == product.id,
+                    Orders.customer_order_id.is_(None),
                 )
             )
             if order is None:
@@ -244,6 +269,182 @@ def menu():
         products = db.scalars(select(Product).order_by(Product.id)).all()
     return render_template('menu.html', products=products)
 
+
+@app.route('/reservations', methods=['GET', 'POST'])
+def reservations():
+    if g.user is None:
+        flash('Please log in to book a table.', 'warning')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        reservation_date_value = request.form.get('reservation_date', '')
+        number_of_people_value = request.form.get('number_of_people', '')
+        try:
+            reservation_date = date.fromisoformat(reservation_date_value)
+            number_of_people = int(number_of_people_value)
+        except ValueError:
+            flash('Enter a valid reservation date and number of guests.', 'danger')
+        else:
+            if reservation_date < date.today():
+                flash('Reservation date must be today or later.', 'danger')
+            elif not 1 <= number_of_people <= 20:
+                flash('Choose between 1 and 20 guests.', 'danger')
+            else:
+                with SessionLocal() as db:
+                    db.add(Reservation(
+                        user_id=g.user.id,
+                        reservation_date=reservation_date,
+                        number_of_people=number_of_people,
+                    ))
+                    db.commit()
+                flash('Your table reservation has been saved.', 'success')
+                return redirect(url_for('reservations'))
+
+    with SessionLocal() as db:
+        user_reservations = db.scalars(
+            select(Reservation)
+            .where(Reservation.user_id == g.user.id)
+            .order_by(Reservation.reservation_date, Reservation.id)
+        ).all()
+
+    return render_template(
+        'reservations.html',
+        reservations=user_reservations,
+        minimum_date=date.today().isoformat(),
+    )
+
+
+@app.route('/cart/remove/<int:order_id>', methods=['POST'])
+def remove_from_cart(order_id):
+    if g.user is None:
+        flash('Please log in to update your cart.', 'warning')
+        return redirect(url_for('login'))
+
+    with SessionLocal() as db:
+        order = db.scalar(
+            select(Orders).where(
+                Orders.id == order_id,
+                Orders.user_id == g.user.id,
+                Orders.customer_order_id.is_(None),
+            )
+        )
+        if order is None:
+            flash('That item is not in your cart.', 'warning')
+        elif order.quantity > 1:
+            order.quantity -= 1
+            db.commit()
+            flash(f'Removed one {order.product.name} from your cart.', 'success')
+        else:
+            product_name = order.product.name
+            db.delete(order)
+            db.commit()
+            flash(f'Removed {product_name} from your cart.', 'success')
+
+    return redirect(url_for('orders'))
+
+
+@app.route('/create_order', methods=['GET', 'POST'])
+def create_order():
+    if g.user is None:
+        flash('Please log in to place an order.', 'warning')
+        return redirect(url_for('login'))
+
+    with SessionLocal() as db:
+        cart_items = db.scalars(
+            select(Orders)
+            .options(selectinload(Orders.product))
+            .where(
+                Orders.user_id == g.user.id,
+                Orders.customer_order_id.is_(None),
+            )
+            .order_by(Orders.id)
+        ).all()
+
+        if request.method == 'POST':
+            if not cart_items:
+                flash('Your cart is empty.', 'warning')
+                return redirect(url_for('orders'))
+
+            customer_order = CustomerOrder(user_id=g.user.id)
+            db.add(customer_order)
+            db.flush()
+            for item in cart_items:
+                item.customer_order_id = customer_order.id
+            db.commit()
+            flash('Your order has been placed.', 'success')
+            return redirect(url_for('my_order', order_id=customer_order.id))
+
+        total = sum(
+            (item.product.price * item.quantity for item in cart_items),
+            start=0,
+        )
+
+    return render_template(
+        'create_order.html',
+        cart_items=cart_items,
+        total=total,
+    )
+
+
+@app.route('/my_order/<int:order_id>')
+def my_order(order_id):
+    if g.user is None:
+        flash('Please log in to view your order.', 'warning')
+        return redirect(url_for('login'))
+
+    with SessionLocal() as db:
+        customer_order = db.scalar(
+            select(CustomerOrder)
+            .options(selectinload(CustomerOrder.items).selectinload(Orders.product))
+            .where(
+                CustomerOrder.id == order_id,
+                CustomerOrder.user_id == g.user.id,
+            )
+        )
+        if customer_order is None:
+            abort(404)
+        total = sum(
+            (item.product.price * item.quantity for item in customer_order.items),
+            start=0,
+        )
+
+    return render_template(
+        'my_order.html',
+        customer_order=customer_order,
+        total=total,
+    )
+
+
+@app.route('/my_orders')
+def my_orders():
+    if g.user is None:
+        flash('Please log in to view your orders.', 'warning')
+        return redirect(url_for('login'))
+
+    with SessionLocal() as db:
+        customer_orders = db.scalars(
+            select(CustomerOrder)
+            .options(selectinload(CustomerOrder.items).selectinload(Orders.product))
+            .where(CustomerOrder.user_id == g.user.id)
+            .order_by(CustomerOrder.created_at.desc(), CustomerOrder.id.desc())
+        ).all()
+        order_summaries = [
+            {
+                'order': customer_order,
+                'total': sum(
+                    (
+                        item.product.price * item.quantity
+                        for item in customer_order.items
+                    ),
+                    start=0,
+                ),
+            }
+            for customer_order in customer_orders
+        ]
+
+    return render_template('my_orders.html', order_summaries=order_summaries)
+
+
 @app.route('/orders')
 def orders():
     if g.user is None:
@@ -254,14 +455,26 @@ def orders():
         cart_items = db.scalars(
             select(Orders)
             .options(selectinload(Orders.product))
-            .where(Orders.user_id == g.user.id)
+            .where(
+                Orders.user_id == g.user.id,
+                Orders.customer_order_id.is_(None),
+            )
             .order_by(Orders.id)
         ).all()
         total = sum(
             (item.product.price * item.quantity for item in cart_items),
             start=0,
         )
-    return render_template('orders.html', cart_items=cart_items, total=total)
+        cart_summary = [
+            {
+                'product': item.product.name,
+                'quantity': item.quantity,
+                'subtotal': str(item.product.price * item.quantity),
+            }
+            for item in cart_items
+        ]
+        app.logger.info('Cart contents: %s | total=%s', cart_summary, total)
+    return render_template('cart.html', cart_items=cart_items, total=total)
 
 
 if __name__ == '__main__':

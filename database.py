@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Date, ForeignKey, Numeric, String, create_engine
@@ -14,6 +14,12 @@ class Users(Base):
     __tablename__ = "users"
 
     orders: Mapped[list["Orders"]] = relationship("Orders", back_populates="user") 
+    customer_orders: Mapped[list["CustomerOrder"]] = relationship(
+        "CustomerOrder", back_populates="user"
+    )
+    reservations: Mapped[list["Reservation"]] = relationship(
+        "Reservation", back_populates="user"
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(100), unique=True)
@@ -37,9 +43,27 @@ class Orders(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    customer_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customer_orders.id"), nullable=True
+    )
     quantity: Mapped[int] = mapped_column()
     user: Mapped["Users"] = relationship("Users", back_populates="orders")
     product: Mapped["Product"] = relationship("Product", back_populates="orders")
+    customer_order: Mapped["CustomerOrder | None"] = relationship(
+        "CustomerOrder", back_populates="items"
+    )
+
+
+class CustomerOrder(Base):
+    __tablename__ = "customer_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
+    user: Mapped["Users"] = relationship("Users", back_populates="customer_orders")
+    items: Mapped[list["Orders"]] = relationship(
+        "Orders", back_populates="customer_order"
+    )
 
 class Reservation(Base):
     __tablename__ = "reservations"
@@ -48,3 +72,4 @@ class Reservation(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     reservation_date: Mapped[date] = mapped_column(Date)
     number_of_people: Mapped[int] = mapped_column()
+    user: Mapped["Users"] = relationship("Users", back_populates="reservations")

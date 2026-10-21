@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}Cart | Food Shop{% endblock %}
+{% block title %}Order #{{ customer_order.id }} | Food Shop{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Your Cart</h1>
-{% if cart_items %}
+<h1 class="mb-3">Order details</h1>
+<p class="text-secondary">
+	Order #{{ customer_order.id }} · Placed {{ customer_order.created_at.strftime('%d.%m.%Y %H:%M') }}
+</p>
+
 <div class="table-responsive">
 	<table class="table align-middle">
 		<thead>
@@ -16,16 +19,9 @@
 			</tr>
 		</thead>
 		<tbody>
-			{% for item in cart_items %}
+			{% for item in customer_order.items %}
 			<tr>
-				<td>
-					<div class="d-flex align-items-center gap-3">
-						{% if item.product.image %}
-						<img src="{{ url_for('static', filename=item.product.image) }}" alt="" width="64" height="64" class="rounded object-fit-cover">
-						{% endif %}
-						<a href="{{ url_for('position', name=item.product.name) }}">{{ item.product.name }}</a>
-					</div>
-				</td>
+				<td>{{ item.product.name }}</td>
 				<td>₴{{ "%.2f"|format(item.product.price) }}</td>
 				<td>{{ item.quantity }}</td>
 				<td class="text-end">₴{{ "%.2f"|format(item.product.price * item.quantity) }}</td>
@@ -40,7 +36,5 @@
 		</tfoot>
 	</table>
 </div>
-{% else %}
-<p class="text-secondary">Your cart is empty. <a href="{{ url_for('menu') }}">Browse the menu</a> to add something delicious.</p>
-{% endif %}
+<a class="btn btn-outline-secondary" href="{{ url_for('orders') }}">Back to cart</a>
 {% endblock %}
