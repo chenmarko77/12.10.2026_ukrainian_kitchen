@@ -455,6 +455,96 @@ class AuthenticationTests(unittest.TestCase):
         self.assertIn(b'&lt;script&gt;', home.data)
         self.assertNotIn(b'<script>alert(1)</script>', home.data)
 
+    def test_menu_management_requires_an_administrator(self):
+        anonymous_response = self.client.get('/admin/menu/add')
+        self.assertEqual(anonymous_response.status_code, 302)
+        self.assertTrue(anonymous_response.location.endswith('/login'))
+
+        self.register()
+        self.login()
+        self.assertEqual(self.client.get('/admin/menu/add').status_code, 403)
+        self.assertNotIn(b'Admin panel', self.client.get('/').data)
+
+    def test_administrator_can_add_menu_item_and_see_it_on_menu(self):
+        self.register(username='admin')
+        with self.sessions() as db:
+            admin = db.scalar(select(Users).where(Users.username == 'admin'))
+            assert admin is not None
+            admin.is_admin = True
+            db.commit()
+        self.post_form('/login', {
+            'username': 'admin',
+            'password': 'a strong password',
+        })
+
+        page = self.client.get('/admin/menu/add')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'Admin panel', self.client.get('/').data)
+        response = self.post_form('/admin/menu/add', {
+            'name': 'Deruny',
+            'price': '125.50',
+            'category': 'Ukrainian classic',
+            'description': 'Crispy potato pancakes.',
+            'image': 'borsch.jpg',
+        }, follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Deruny was added to the menu.', response.data)
+        self.assertIn(b'Crispy potato pancakes.', response.data)
+        with self.sessions() as db:
+            product = db.scalar(select(Product).where(Product.name == 'Deruny'))
+            assert product is not None
+            self.assertEqual(product.price, Decimal('125.50'))
+            self.assertEqual(product.image, 'borsch.jpg')
+
+    def test_admin_creation_rejects_invalid_and_duplicate_products(self):
+        self.register(username='admin')
+        with self.sessions() as db:
+            admin = db.scalar(select(Users).where(Users.username == 'admin'))
+            assert admin is not None
+            admin.is_admin = True
+            db.commit()
+        self.post_form('/login', {
+            'username': 'admin',
+            'password': 'a strong password',
+        })
+
+        valid_form = {
+            'name': 'Test Dish',
+            'price': '10.00',
+            'category': 'Test',
+            'description': '',
+            'image': '',
+        }
+        self.client.get('/admin/menu/add')
+        for overrides, expected_error in (
+            ({'price': '0'}, b'Price must be between'),
+            ({'price': 'not a price'}, b'Enter a valid price.'),
+            ({'image': '..\\secret.jpg'}, b'Choose an image file'),
+        ):
+            with self.subTest(overrides=overrides):
+                response = self.post_form(
+                    '/admin/menu/add',
+                    {**valid_form, **overrides},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(expected_error, response.data)
+
+        self.post_form('/admin/menu/add', valid_form)
+        duplicate = self.post_form('/admin/menu/add', valid_form)
+        self.assertIn(b'A menu item with this name already exists.', duplicate.data)
+
+    def test_make_admin_command_promotes_existing_user(self):
+        self.register()
+        result = app.test_cli_runner().invoke(args=['make-admin', 'petro'])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn('Administrator access granted', result.output)
+        with self.sessions() as db:
+            user = db.scalar(select(Users).where(Users.username == 'petro'))
+            assert user is not None
+            self.assertTrue(user.is_admin)
+
 
 if __name__ == '__main__':
     unittest.main()

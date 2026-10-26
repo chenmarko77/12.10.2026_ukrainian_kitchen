@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Add Menu Item | Food Shop{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+	<section class="col-12 col-lg-8" aria-labelledby="add-menu-item-heading">
+		<h1 id="add-menu-item-heading">Add a menu item</h1>
+		<p class="text-secondary">New items appear on the public menu as soon as you save them.</p>
+		{% if error %}
+		<div class="alert alert-danger" role="alert">{{ error }}</div>
+		{% endif %}
+		<form action="{{ url_for('add_position') }}" method="post" class="card card-body shadow-sm">
+			<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+			<div class="mb-3">
+				<label class="form-label" for="name">Name</label>
+				<input class="form-control" id="name" name="name" value="{{ form.name }}" maxlength="100" required>
+			</div>
+			<div class="mb-3">
+				<label class="form-label" for="price">Price (₴)</label>
+				<input class="form-control" type="number" id="price" name="price" value="{{ form.price }}" min="0.01" max="99999999.99" step="0.01" required>
+			</div>
+			<div class="mb-3">
+				<label class="form-label" for="category">Category</label>
+				<input class="form-control" id="category" name="category" value="{{ form.category }}" maxlength="100" required>
+			</div>
+			<div class="mb-3">
+				<label class="form-label" for="description">Description</label>
+				<textarea class="form-control" id="description" name="description" rows="3" maxlength="500">{{ form.description }}</textarea>
+			</div>
+			<div class="mb-3">
+				<label class="form-label" for="image">Image filename (optional)</label>
+				<input class="form-control" id="image" name="image" value="{{ form.image }}" maxlength="100" aria-describedby="image-help">
+				<div class="form-text" id="image-help">Copy an image into the img folder first, then enter its filename, such as borsch.jpg.</div>
+			</div>
+			<div class="d-flex flex-wrap gap-2">
+				<button class="btn btn-success" type="submit">Add to menu</button>
+				<a class="btn btn-outline-secondary" href="{{ url_for('menu') }}">Back to menu</a>
+			</div>
+		</form>
+	</section>
+</div>
+{% endblock %}

@@ -1,7 +1,10 @@
 import os
 import secrets
 from datetime import date
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
+import click
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import selectinload
@@ -44,6 +47,17 @@ def initialize_order_schema():
             connection.exec_driver_sql(
                 'ALTER TABLE orders ADD COLUMN customer_order_id '
                 'INTEGER REFERENCES customer_orders(id)'
+            )
+
+
+def initialize_user_schema():
+    user_columns = {
+        column['name'] for column in inspect(engine).get_columns('users')
+    }
+    if 'is_admin' not in user_columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                'ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0'
             )
 
 
@@ -110,6 +124,22 @@ def initialize_menu():
 
 initialize_menu()
 initialize_order_schema()
+initialize_user_schema()
+
+
+@app.cli.command('make-admin')
+@click.argument('username')
+def make_admin(username):
+    """Grant administrator access to an existing user."""
+    with SessionLocal() as db:
+        user = db.scalar(select(Users).where(Users.username == username))
+        if user is None:
+            raise click.ClickException(
+                f'User "{username}" does not exist. Register that user first.'
+            )
+        user.is_admin = True
+        db.commit()
+    click.echo(f'Administrator access granted to "{username}".')
 
 
 def csrf_token():
@@ -255,6 +285,79 @@ def login():
 
     return render_template('login.html', error=error, username=username)
 
+@app.route('/add_position', methods=['POST'])
+@app.route('/admin/menu/add', methods=['GET', 'POST'])
+def add_position():
+    if g.user is None:
+        flash('Please log in to manage the menu.', 'warning')
+        return redirect(url_for('login'))
+    if not g.user.is_admin:
+        abort(403)
+
+    form = {
+        'name': request.form.get('name', '').strip(),
+        'price': request.form.get('price', '').strip(),
+        'category': request.form.get('category', '').strip(),
+        'description': request.form.get('description', '').strip(),
+        'image': request.form.get('image', '').strip(),
+    }
+    error = None
+
+    if request.method == 'POST':
+        try:
+            price = Decimal(form['price'])
+        except InvalidOperation:
+            price = Decimal('0')
+            error = 'Enter a valid price.'
+
+        if error is None:
+            if not 1 <= len(form['name']) <= 100:
+                error = 'Name must be between 1 and 100 characters.'
+            elif not 1 <= len(form['category']) <= 100:
+                error = 'Category must be between 1 and 100 characters.'
+            elif len(form['description']) > 500:
+                error = 'Description must be 500 characters or fewer.'
+            elif (
+                not price.is_finite()
+                or price < Decimal('0.01')
+                or price > Decimal('99999999.99')
+                or price.quantize(Decimal('0.01')) != price
+            ):
+                error = 'Price must be between 0.01 and 99,999,999.99, with at most two decimals.'
+
+        if error is None and form['image']:
+            image_name = form['image']
+            image_path = Path(app.static_folder) / image_name
+            if (
+                Path(image_name).name != image_name
+                or '\\' in image_name
+                or '/' in image_name
+                or Path(image_name).suffix.lower()
+                not in {'.gif', '.jpg', '.jpeg', '.png', '.webp'}
+                or not image_path.is_file()
+            ):
+                error = 'Choose an image file that already exists in the img folder.'
+
+        if error is None:
+            with SessionLocal() as db:
+                existing_product = db.scalar(
+                    select(Product).where(Product.name == form['name'])
+                )
+                if existing_product is not None:
+                    error = 'A menu item with this name already exists.'
+                else:
+                    db.add(Product(
+                        name=form['name'],
+                        price=price,
+                        category=form['category'],
+                        description=form['description'],
+                        image=form['image'],
+                    ))
+                    db.commit()
+                    flash(f'{form["name"]} was added to the menu.', 'success')
+                    return redirect(url_for('menu'))
+
+    return render_template('add.position.html', error=error, form=form)
 
 @app.route('/logout', methods=['POST'])
 def logout():

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, create_engine
+from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker, mapped_column, Mapped
 
 engine = create_engine("sqlite:///foodshop.db")    
@@ -24,6 +24,7 @@ class Users(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(100), unique=True)
     password: Mapped[str] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 class Product(Base):
     __tablename__ = "products"
