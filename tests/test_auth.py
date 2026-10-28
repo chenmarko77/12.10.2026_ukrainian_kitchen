@@ -458,12 +458,87 @@ class AuthenticationTests(unittest.TestCase):
     def test_menu_management_requires_an_administrator(self):
         anonymous_response = self.client.get('/admin/menu/add')
         self.assertEqual(anonymous_response.status_code, 302)
-        self.assertTrue(anonymous_response.location.endswith('/login'))
+        self.assertTrue(anonymous_response.location.endswith('/admin'))
 
         self.register()
         self.login()
         self.assertEqual(self.client.get('/admin/menu/add').status_code, 403)
+        self.client.get('/')
+        with self.client.session_transaction() as session:
+            csrf_token = session['csrf_token']
+        remove_response = self.client.post(
+            '/admin/menu/1/remove',
+            data={'csrf_token': csrf_token},
+        )
+        self.assertEqual(remove_response.status_code, 403)
         self.assertNotIn(b'Admin panel', self.client.get('/').data)
+
+    def test_dedicated_admin_login_can_add_a_menu_item(self):
+        login_page = self.client.get('/admin')
+        self.assertEqual(login_page.status_code, 200)
+        self.assertIn(b'Admin login', login_page.data)
+
+        invalid_login = self.post_form('/admin', {
+            'username': 'admin',
+            'password': 'adminadmin',
+        })
+        self.assertEqual(invalid_login.status_code, 200)
+        self.assertIn(b'Invalid username or password.', invalid_login.data)
+
+        login = self.post_form('/admin', {
+            'username': 'adminadmin',
+            'password': 'adminadmin',
+        })
+        self.assertEqual(login.status_code, 302)
+        self.assertTrue(login.location.endswith('/admin'))
+        self.assertEqual(self.client.get('/admin').status_code, 200)
+        self.assertEqual(self.client.get('/admin/menu/add').status_code, 200)
+
+        response = self.post_form('/admin/menu/add', {
+            'name': 'Holubtsi',
+            'price': '175.00',
+            'category': 'Traditional dish',
+            'description': 'Cabbage rolls with rice.',
+            'image': '',
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Holubtsi was added to the menu.', response.data)
+        self.assertIn(b'Cabbage rolls with rice.', response.data)
+
+        with self.sessions() as db:
+            product = db.scalar(select(Product).where(Product.name == 'Holubtsi'))
+            assert product is not None
+            customer = Users(username='menu-customer', password='unused')
+            db.add(customer)
+            db.flush()
+            db.add(Orders(user_id=customer.id, product_id=product.id, quantity=1))
+            db.commit()
+            product_id = product.id
+
+        removal = self.post_form(
+            f'/admin/menu/{product_id}/remove',
+            follow_redirects=True,
+        )
+        self.assertEqual(removal.status_code, 200)
+        self.assertIn(b'Holubtsi was removed from the menu.', removal.data)
+        self.assertNotIn(b'Holubtsi', self.client.get('/menu').data)
+        self.assertEqual(
+            self.client.get('/position/Holubtsi').status_code,
+            404,
+        )
+        with self.sessions() as db:
+            product = db.get(Product, product_id)
+            assert product is not None
+            self.assertFalse(product.available)
+            self.assertEqual(
+                db.scalar(select(Orders).where(Orders.product_id == product_id)).quantity,
+                1,
+            )
+
+        with self.client.session_transaction() as session:
+            csrf_token = session['csrf_token']
+        self.client.post('/logout', data={'csrf_token': csrf_token})
+        self.assertIn(b'Admin login', self.client.get('/admin').data)
 
     def test_administrator_can_add_menu_item_and_see_it_on_menu(self):
         self.register(username='admin')

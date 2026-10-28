@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login | Food Shop{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+	<section class="col-12 col-md-7 col-lg-5" aria-labelledby="admin-login-heading">
+		<h1 id="admin-login-heading">Admin login</h1>
+		{% if error %}
+		<div class="alert alert-danger" role="alert">{{ error }}</div>
+		{% endif %}
+		<form action="{{ url_for('admin') }}" method="post" class="card card-body shadow-sm">
+			<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+			<div class="mb-3">
+				<label class="form-label" for="username">Username</label>
+				<input class="form-control" id="username" name="username" value="{{ username }}" autocomplete="username" required>
+			</div>
+			<div class="mb-3">
+				<label class="form-label" for="password">Password</label>
+				<input class="form-control" type="password" id="password" name="password" autocomplete="current-password" required>
+			</div>
+			<button class="btn btn-success" type="submit">Login as admin</button>
+		</form>
+	</section>
+</div>
+{% endblock %}

@@ -66,10 +66,10 @@
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'index' %} active{% endif %}" href="{{ url_for('index') }}"{% if request.endpoint == 'index' %} aria-current="page"{% endif %}>Home</a></li>
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'menu' %} active{% endif %}" href="{{ url_for('menu') }}"{% if request.endpoint == 'menu' %} aria-current="page"{% endif %}>Menu</a></li>
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'orders' %} active{% endif %}" href="{{ url_for('orders') }}"{% if request.endpoint == 'orders' %} aria-current="page"{% endif %}>Cart</a></li>
-						{% if g.user %}
-						{% if g.user.is_admin %}
-						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'add_position' %} active{% endif %}" href="{{ url_for('add_position') }}"{% if request.endpoint == 'add_position' %} aria-current="page"{% endif %}>Admin panel</a></li>
+						{% if session.get('admin_authenticated') or (g.user and g.user.is_admin) %}
+						<li class="nav-item"><a class="nav-link{% if request.endpoint in ('admin', 'add_position') %} active{% endif %}" href="{{ url_for('admin') }}"{% if request.endpoint in ('admin', 'add_position') %} aria-current="page"{% endif %}>Admin panel</a></li>
 						{% endif %}
+						{% if g.user %}
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'reservations' %} active{% endif %}" href="{{ url_for('reservations') }}"{% if request.endpoint == 'reservations' %} aria-current="page"{% endif %}>Book a Table</a></li>
 						<li class="nav-item"><a class="nav-link{% if request.endpoint in ('my_orders', 'my_order') %} active{% endif %}" href="{{ url_for('my_orders') }}"{% if request.endpoint in ('my_orders', 'my_order') %} aria-current="page"{% endif %}>My Orders</a></li>
 						<li class="nav-item"><span class="navbar-text d-block">Hello, {{ g.user.username }}</span></li>
@@ -79,8 +79,17 @@
 								<button class="nav-link" type="submit">Logout</button>
 							</form>
 						</li>
+						{% elif session.get('admin_authenticated') %}
+						<li class="nav-item"><span class="navbar-text d-block">Hello, Admin</span></li>
+						<li class="nav-item">
+							<form action="{{ url_for('logout') }}" method="post">
+								<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+								<button class="nav-link" type="submit">Logout</button>
+							</form>
+						</li>
 						{% else %}
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'login' %} active{% endif %}" href="{{ url_for('login') }}"{% if request.endpoint == 'login' %} aria-current="page"{% endif %}>Login</a></li>
+						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'admin' %} active{% endif %}" href="{{ url_for('admin') }}"{% if request.endpoint == 'admin' %} aria-current="page"{% endif %}>Admin login</a></li>
 						<li class="nav-item"><a class="nav-link{% if request.endpoint == 'register' %} active{% endif %}" href="{{ url_for('register') }}"{% if request.endpoint == 'register' %} aria-current="page"{% endif %}>Register</a></li>
 						{% endif %}
 					</ul>

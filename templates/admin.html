@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel | Food Shop{% endblock %}
+
+{% block content %}
+<section aria-labelledby="admin-heading">
+	<h1 id="admin-heading">Admin panel</h1>
+	<p class="text-secondary">Manage the dishes available on the menu.</p>
+	<p><a class="btn btn-success" href="{{ url_for('add_position') }}">Add a menu item</a></p>
+	<h2 class="h4 mt-4">Current menu items</h2>
+	{% if products %}
+	<div class="list-group">
+		{% for product in products %}
+		<div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-3">
+			<div>
+				<strong>{{ product.name }}</strong>
+				<span class="text-secondary">— ₴{{ "%.2f"|format(product.price) }} · {{ product.category }}</span>
+			</div>
+			<form action="{{ url_for('remove_menu_item', product_id=product.id) }}" method="post">
+				<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+				<button class="btn btn-outline-danger btn-sm" type="submit">Remove from menu</button>
+			</form>
+		</div>
+		{% endfor %}
+	</div>
+	{% else %}
+	<p class="text-secondary">There are no menu items available.</p>
+	{% endif %}
+</section>
+{% endblock %}

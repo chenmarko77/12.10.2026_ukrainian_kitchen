@@ -37,6 +37,7 @@ class Product(Base):
     category: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(String(500), default="")
     image: Mapped[str] = mapped_column(String(100), default="")
+    available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 class Orders(Base):
     __tablename__ = "orders"

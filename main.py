@@ -99,6 +99,9 @@ MENU_ITEMS = (
     },
 )
 
+ADMIN_USERNAME = 'adminadmin'
+ADMIN_PASSWORD = 'adminadmin'
+
 
 def initialize_menu():
     product_columns = {
@@ -112,6 +115,10 @@ def initialize_menu():
         if 'image' not in product_columns:
             connection.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN image VARCHAR(100) NOT NULL DEFAULT ''"
+            )
+        if 'available' not in product_columns:
+            connection.exec_driver_sql(
+                'ALTER TABLE products ADD COLUMN available BOOLEAN NOT NULL DEFAULT 1'
             )
 
     with SessionLocal() as db:
@@ -178,7 +185,12 @@ def index():
 @app.route("/position/<string:name>", methods=['POST'])
 def position(name):
     with SessionLocal() as db:
-        product = db.scalar(select(Product).where(Product.name == name))
+        product = db.scalar(
+            select(Product).where(
+                Product.name == name,
+                Product.available.is_(True),
+            )
+        )
         if product is None:
             abort(404)
 
@@ -285,13 +297,49 @@ def login():
 
     return render_template('login.html', error=error, username=username)
 
+
+@app.route('/admin', methods=['GET', 'POST'])
+def admin():
+    if session.get('admin_authenticated') or (
+        g.user is not None and g.user.is_admin
+    ):
+        with SessionLocal() as db:
+            products = db.scalars(
+                select(Product)
+                .where(Product.available.is_(True))
+                .order_by(Product.id)
+            ).all()
+        return render_template('admin.html', products=products)
+
+    username = ''
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if (
+            secrets.compare_digest(username, ADMIN_USERNAME)
+            and secrets.compare_digest(password, ADMIN_PASSWORD)
+        ):
+            session.clear()
+            session['admin_authenticated'] = True
+            flash('You are now logged in as the administrator.', 'success')
+            return redirect(url_for('admin'))
+        error = 'Invalid username or password.'
+
+    return render_template(
+        'admin_login.html',
+        error=error,
+        username=username,
+    )
+
+
 @app.route('/add_position', methods=['POST'])
 @app.route('/admin/menu/add', methods=['GET', 'POST'])
 def add_position():
-    if g.user is None:
+    if not session.get('admin_authenticated') and g.user is None:
         flash('Please log in to manage the menu.', 'warning')
-        return redirect(url_for('login'))
-    if not g.user.is_admin:
+        return redirect(url_for('admin'))
+    if not session.get('admin_authenticated') and not g.user.is_admin:
         abort(403)
 
     form = {
@@ -341,23 +389,62 @@ def add_position():
         if error is None:
             with SessionLocal() as db:
                 existing_product = db.scalar(
-                    select(Product).where(Product.name == form['name'])
+                    select(Product).where(
+                        Product.name == form['name'],
+                        Product.available.is_(True),
+                    )
                 )
                 if existing_product is not None:
                     error = 'A menu item with this name already exists.'
                 else:
-                    db.add(Product(
-                        name=form['name'],
-                        price=price,
-                        category=form['category'],
-                        description=form['description'],
-                        image=form['image'],
-                    ))
+                    removed_product = db.scalar(
+                        select(Product)
+                        .where(
+                            Product.name == form['name'],
+                            Product.available.is_(False),
+                        )
+                        .order_by(Product.id.desc())
+                    )
+                    if removed_product is None:
+                        db.add(Product(
+                            name=form['name'],
+                            price=price,
+                            category=form['category'],
+                            description=form['description'],
+                            image=form['image'],
+                        ))
+                    else:
+                        removed_product.price = price
+                        removed_product.category = form['category']
+                        removed_product.description = form['description']
+                        removed_product.image = form['image']
+                        removed_product.available = True
                     db.commit()
                     flash(f'{form["name"]} was added to the menu.', 'success')
                     return redirect(url_for('menu'))
 
     return render_template('add.position.html', error=error, form=form)
+
+
+@app.route('/admin/menu/<int:product_id>/remove', methods=['POST'])
+def remove_menu_item(product_id):
+    if not session.get('admin_authenticated') and g.user is None:
+        flash('Please log in to manage the menu.', 'warning')
+        return redirect(url_for('admin'))
+    if not session.get('admin_authenticated') and not g.user.is_admin:
+        abort(403)
+
+    with SessionLocal() as db:
+        product = db.get(Product, product_id)
+        if product is None or not product.available:
+            abort(404)
+        product_name = product.name
+        product.available = False
+        db.commit()
+
+    flash(f'{product_name} was removed from the menu.', 'success')
+    return redirect(url_for('admin'))
+
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -369,7 +456,11 @@ def logout():
 @app.route('/menu')
 def menu():
     with SessionLocal() as db:
-        products = db.scalars(select(Product).order_by(Product.id)).all()
+        products = db.scalars(
+            select(Product)
+            .where(Product.available.is_(True))
+            .order_by(Product.id)
+        ).all()
     return render_template('menu.html', products=products)
 
 
